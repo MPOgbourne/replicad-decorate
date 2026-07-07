@@ -15,14 +15,29 @@ export async function addSVG(
     mirrorY = true,
     disableCut = true,
     alwaysClosePaths = false,
+    fitViewBox = false,
   }
 ) {
+  if (typeof svgString !== "string" || !svgString.trim()) {
+    throw new Error("addSVG requires a non-empty svgString option");
+  }
+  if (!depth) {
+    throw new Error("addSVG requires a non-zero depth option");
+  }
+
   const face = shape.faces[faceIndex];
+  if (!face) {
+    throw new Error(
+      `Face ${faceIndex} not found (the shape has ${shape.faces.length} faces)`
+    );
+  }
 
-  let image = drawSVG(svgString, { width, alwaysClosePaths });
-  const imgCenter = image.boundingBox.center;
+  let image = drawSVG(svgString, { width, alwaysClosePaths, fitViewBox });
 
-  image = image.translate(-imgCenter[0], -imgCenter[1]);
+  if (!fitViewBox) {
+    const imgCenter = image.boundingBox.center;
+    image = image.translate(-imgCenter[0], -imgCenter[1]);
+  }
   if (angle) {
     image = image.rotate(angle);
   }

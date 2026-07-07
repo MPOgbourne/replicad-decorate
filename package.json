@@ -13,13 +13,17 @@
   "module": "dist/es/replicad-decorate.js",
   "type": "module",
   "scripts": {
-    "build": "rollup -c"
+    "build": "rollup -c",
+    "prepare": "rollup -c",
+    "test": "pnpm build && node test/smoke.mjs && node test/e2e.mjs"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^24.0.0",
     "@rollup/plugin-node-resolve": "^15.0.1",
     "eslint": "^8.31.0",
     "prettier": "^2.8.1",
+    "replicad": "^0.23.1",
+    "replicad-opencascadejs": "^0.23.0",
     "rollup": "^3.9.1",
     "rollup-plugin-replace-imports-with-vars": "^1.1.0"
   },
@@ -27,8 +31,8 @@
     "replicad": ">0.14.3"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.10",
     "d3-delaunay": "^6.0.2",
-    "path-data-parser": "^0.1.0",
-    "xmldom": "^0.6.0"
+    "svgpath": "^2.6.0"
   }
 }
