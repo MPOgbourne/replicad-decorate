@@ -103,5 +103,27 @@ await check("addText caches the font (second call, no reload)", async () => {
   console.log(`     (second addText took ${Date.now() - start}ms)`);
 });
 
+await check("addText carveBackground sinks the face around the text", async () => {
+  const box = makeBaseBox(80, 60, 10);
+  const decorated = await addText(box, {
+    faceIndex: 4,
+    text: "Hi",
+    depth: 1,
+    fontSize: 20,
+    margin: 3,
+    carveBackground: true,
+  });
+  if (!decorated || decorated.faces.length <= box.faces.length) {
+    throw new Error("carveBackground did not add any faces");
+  }
+  // The carve is a cut: the bounding box must not grow beyond the original
+  const before = box.boundingBox;
+  const after = decorated.boundingBox;
+  const grew =
+    after.bounds[1][2] > before.bounds[1][2] + 1e-6 ||
+    after.bounds[0][2] < before.bounds[0][2] - 1e-6;
+  if (grew) throw new Error("carveBackground protruded past the face");
+});
+
 console.log(failures ? `\n${failures} failure(s)` : "\nAll e2e tests passed");
 process.exit(failures ? 1 : 0);

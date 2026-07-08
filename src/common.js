@@ -84,7 +84,8 @@ export const addPatternToShape = (
   depth,
   margin,
   mirrorY = false,
-  disableCut = false
+  disableCut = false,
+  carveBackground = false
 ) => {
   const { vLen, uLen, uMin, vMin, width, height } = faceSize(face);
 
@@ -105,7 +106,14 @@ export const addPatternToShape = (
     pattern = pattern.mirror([0, 1]);
   }
 
-  if (!disableCut) {
+  if (carveBackground) {
+    // Carve the face around the pattern instead of the pattern itself: the
+    // outline (inset by margin) minus the pattern sinks by |depth|, leaving
+    // the pattern standing at the original surface level ("raised" without
+    // protruding past the face).
+    pattern = outline.cut(pattern);
+    depth = -Math.abs(depth);
+  } else if (!disableCut) {
     pattern = pattern.intersect(outline);
   }
   const cleanedPattern = pattern.sketchOnFace(face, "native").extrude(depth);

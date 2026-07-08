@@ -82,3 +82,7 @@ Options: `faceIndex`, `text`, `depth`, plus:
   (or the family name to register `fontUrl` under)
 - `margin` (default 1), `mirrorY` (default false), `disableCut` (default
   false)
+- `carveBackground` (default false): instead of engraving/embossing the
+  glyphs, sink the face around them by `|depth|` (bounded by the face
+  outline inset by `margin`), leaving the text standing at the original
+  surface level — a "raised" look that never protrudes past the face

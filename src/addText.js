@@ -33,6 +33,7 @@ export async function addText(
     margin = 1,
     mirrorY = false,
     disableCut = false,
+    carveBackground = false,
   }
 ) {
   if (typeof text !== "string" || !text) {
@@ -74,5 +75,14 @@ export async function addText(
   }
   txt = txt.translate(xShift + width / 2, yShift + height / 2);
 
-  return addPatternToShape(shape, face, txt, depth, margin, mirrorY, disableCut);
+  return addPatternToShape(
+    shape,
+    face,
+    txt,
+    depth,
+    margin,
+    mirrorY,
+    disableCut,
+    carveBackground
+  );
 }
