@@ -103,31 +103,41 @@ export const addPatternToShape = (
   pattern = pattern.translate([uMin, vMin]);
 
   if (mirrorY) {
-    pattern = pattern.mirror([0, 1]);
+    // Flip vertically about the horizontal line through the face center:
+    // a real y-flip that keeps the pattern on the face for any UV origin
+    // (the previous mirror([0,1]) point-reflected through the fixed UV
+    // point (0,1), throwing patterns off faces whose parameter range is
+    // not centered there).
+    pattern = pattern.mirror([1, 0], [uMin + uLen / 2, vMin + vLen / 2], "plane");
   }
 
+  // All boundary clipping happens on solids: 2D drawing booleans (cut and
+  // intersect) misbehave with multi-contour patterns (e.g. several glyphs)
+  // and with contours straddling the boundary.
   if (carveBackground) {
     // Carve the face around the pattern instead of the pattern itself: the
     // whole outline (inset by margin) sinks by |depth|, then the pattern is
     // fused back as towers reaching the original surface level — "raised"
-    // without protruding past the face. The boolean runs on solids because
-    // 2D drawing cuts misbehave with multi-contour patterns (e.g. several
-    // glyphs).
+    // without protruding past the face.
     const d = -Math.abs(depth);
-    const clipped = pattern.intersect(outline);
     const panel = outline.sketchOnFace(face, "native").extrude(d);
-    const towers = clipped.sketchOnFace(face, "native").extrude(d);
+    const towers = outline
+      .sketchOnFace(face, "native")
+      .extrude(d)
+      .intersect(pattern.sketchOnFace(face, "native").extrude(d));
     return shape.clone().cut(panel).fuse(towers);
   }
 
+  let patternSolid = pattern.sketchOnFace(face, "native").extrude(depth);
   if (!disableCut) {
-    pattern = pattern.intersect(outline);
+    patternSolid = patternSolid.intersect(
+      outline.sketchOnFace(face, "native").extrude(depth)
+    );
   }
-  const cleanedPattern = pattern.sketchOnFace(face, "native").extrude(depth);
 
   const newShape =
     depth > 0
-      ? shape.clone().fuse(cleanedPattern)
-      : shape.clone().cut(cleanedPattern);
+      ? shape.clone().fuse(patternSolid)
+      : shape.clone().cut(patternSolid);
   return newShape;
 };

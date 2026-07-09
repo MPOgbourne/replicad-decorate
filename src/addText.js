@@ -32,6 +32,8 @@ export async function addText(
     fontFamily = null,
     margin = 1,
     mirrorY = false,
+    mirrorX = false,
+    autoOrient = true,
     disableCut = false,
     carveBackground = false,
   }
@@ -64,8 +66,23 @@ export async function addText(
   let txt = drawText(text, { fontSize, fontFamily: family });
   const txtCenter = txt.boundingBox.center;
 
-  if (face.orientation === "backward") {
+  if (mirrorY) {
+    // addPatternToShape y-flips the positioned pattern (the SVG pipeline is
+    // Y-down). Pre-flip the glyphs about their own center so they end up
+    // upright while the placement semantics (shifts, rotation direction)
+    // stay identical to SVG patterns.
     txt = txt.mirror([1, 0], txtCenter, "plane");
+  } else if (autoOrient && face.orientation === "backward") {
+    // Heuristic readability flip; callers that resolve the face frame
+    // themselves (mirrorX/angle) should pass autoOrient: false
+    txt = txt.mirror([1, 0], txtCenter, "plane");
+  }
+
+  if (mirrorX) {
+    // Horizontal flip about the text's own vertical center line, applied
+    // before rotation — used to correct the handedness of faces whose UV
+    // frame is left-handed relative to their outward normal
+    txt = txt.mirror([0, 1], txtCenter, "plane");
   }
 
   const { width, height } = faceSize(face);

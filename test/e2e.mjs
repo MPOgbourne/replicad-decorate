@@ -103,6 +103,21 @@ await check("addText caches the font (second call, no reload)", async () => {
   console.log(`     (second addText took ${Date.now() - start}ms)`);
 });
 
+await check("oversized text still engraves the part inside the outline", async () => {
+  const box = makeBaseBox(30, 30, 10);
+  const decorated = await addText(box, {
+    faceIndex: 4,
+    text: "AB",
+    depth: -1,
+    fontSize: 40, // glyphs overflow the 30mm face
+    margin: 2,
+    mirrorY: true,
+  });
+  if (!decorated || decorated.faces.length <= box.faces.length) {
+    throw new Error("clipped oversized text did not engrave anything");
+  }
+});
+
 await check("addText carveBackground sinks the face around the text", async () => {
   const box = makeBaseBox(80, 60, 10);
   const decorated = await addText(box, {
