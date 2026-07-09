@@ -108,12 +108,19 @@ export const addPatternToShape = (
 
   if (carveBackground) {
     // Carve the face around the pattern instead of the pattern itself: the
-    // outline (inset by margin) minus the pattern sinks by |depth|, leaving
-    // the pattern standing at the original surface level ("raised" without
-    // protruding past the face).
-    pattern = outline.cut(pattern);
-    depth = -Math.abs(depth);
-  } else if (!disableCut) {
+    // whole outline (inset by margin) sinks by |depth|, then the pattern is
+    // fused back as towers reaching the original surface level — "raised"
+    // without protruding past the face. The boolean runs on solids because
+    // 2D drawing cuts misbehave with multi-contour patterns (e.g. several
+    // glyphs).
+    const d = -Math.abs(depth);
+    const clipped = pattern.intersect(outline);
+    const panel = outline.sketchOnFace(face, "native").extrude(d);
+    const towers = clipped.sketchOnFace(face, "native").extrude(d);
+    return shape.clone().cut(panel).fuse(towers);
+  }
+
+  if (!disableCut) {
     pattern = pattern.intersect(outline);
   }
   const cleanedPattern = pattern.sketchOnFace(face, "native").extrude(depth);
