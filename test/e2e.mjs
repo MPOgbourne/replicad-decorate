@@ -13,7 +13,8 @@ const { setOC, makeBaseBox } = await import("replicad");
 const oc = await opencascade({ locateFile: () => require.resolve("replicad-opencascadejs/src/replicad_single.wasm") });
 setOC(oc);
 
-const { addSVG, addText, drawSVG } = await import("../dist/es/replicad-decorate.js");
+const { addSVG, addText, addBorder, drawSVG } = await import("../dist/es/replicad-decorate.js");
+const { measureVolume } = await import("replicad");
 
 let failures = 0;
 const check = async (name, fn) => {
@@ -138,6 +139,117 @@ await check("addText carveBackground sinks the face around the text", async () =
     after.bounds[1][2] > before.bounds[1][2] + 1e-6 ||
     after.bounds[0][2] < before.bounds[0][2] - 1e-6;
   if (grew) throw new Error("carveBackground protruded past the face");
+});
+
+// --- addBorder ---
+
+// Top face of a makeBaseBox is index 4 (same as the addSVG tests above)
+const borderBox = () => makeBaseBox(40, 40, 10);
+
+for (const profile of ["vertical", "sloped", "chamfered", "rounded"]) {
+  await check(`addBorder raised outline (${profile}) adds volume`, async () => {
+    const box = borderBox();
+    const before = measureVolume(box);
+    const decorated = await addBorder(box, {
+      faceIndex: 4,
+      depth: 1,
+      width: 2,
+      margin: 2,
+      profile,
+      angle: 20,
+    });
+    const after = measureVolume(decorated);
+    if (!(after > before + 1e-3)) {
+      throw new Error(`volume did not grow (${before} -> ${after})`);
+    }
+    // A ring must never grow the part outside the original footprint
+    const grew =
+      decorated.boundingBox.bounds[1][0] > box.boundingBox.bounds[1][0] + 1e-6;
+    if (grew) throw new Error("border overflowed the face");
+  });
+
+  await check(`addBorder engraved outline (${profile}) removes volume`, async () => {
+    const box = borderBox();
+    const before = measureVolume(box);
+    const decorated = await addBorder(box, {
+      faceIndex: 4,
+      depth: -1,
+      width: 2,
+      margin: 2,
+      profile,
+      angle: 20,
+    });
+    const after = measureVolume(decorated);
+    if (!(after < before - 1e-3)) {
+      throw new Error(`volume did not shrink (${before} -> ${after})`);
+    }
+  });
+}
+
+await check("addBorder circle shape cuts a ring groove", async () => {
+  const box = borderBox();
+  const before = measureVolume(box);
+  const decorated = await addBorder(box, {
+    faceIndex: 4,
+    depth: -1,
+    width: 1.5,
+    margin: 3,
+    borderShape: "circle",
+  });
+  const after = measureVolume(decorated);
+  if (!(after < before - 1e-3)) {
+    throw new Error(`circle groove missing (${before} -> ${after})`);
+  }
+});
+
+await check("addBorder rounded shape raises a filleted-corner ring", async () => {
+  const box = borderBox();
+  const before = measureVolume(box);
+  const decorated = await addBorder(box, {
+    faceIndex: 4,
+    depth: 1,
+    width: 1.5,
+    margin: 2,
+    borderShape: "rounded",
+    cornerRadius: 2,
+  });
+  const after = measureVolume(decorated);
+  if (!(after > before + 1e-3)) {
+    throw new Error(`rounded ring missing (${before} -> ${after})`);
+  }
+});
+
+await check("addBorder rejects a ring that cannot fit", async () => {
+  const box = makeBaseBox(10, 10, 10);
+  try {
+    await addBorder(box, { faceIndex: 4, depth: -1, width: 8, margin: 4 });
+  } catch (error) {
+    return;
+  }
+  throw new Error("expected an error for an oversized ring");
+});
+
+await check("addBorder sloped profile has smaller volume than vertical", async () => {
+  const vertical = await addBorder(borderBox(), {
+    faceIndex: 4,
+    depth: 2,
+    width: 3,
+    margin: 2,
+    profile: "vertical",
+  });
+  const sloped = await addBorder(borderBox(), {
+    faceIndex: 4,
+    depth: 2,
+    width: 3,
+    margin: 2,
+    profile: "sloped",
+    angle: 25,
+  });
+  const vVol = measureVolume(vertical);
+  const sVol = measureVolume(sloped);
+  if (!(sVol < vVol - 1e-3)) {
+    throw new Error(`sloped (${sVol}) not smaller than vertical (${vVol})`);
+  }
 });
 
 console.log(failures ? `\n${failures} failure(s)` : "\nAll e2e tests passed");

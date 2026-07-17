@@ -54,27 +54,52 @@ export const randomSeed = (seed) => {
   };
 };
 
-export const drawFaceMargin = (face, margin) => {
-  const { width, uLen, height, vLen } = faceSize(face);
+// UV parameter space is not metric on most faces: convert drawings into a
+// stretched "metric UV" space (1 unit = 1mm) so offsets/radii are true
+// distances, then convert back before sketchOnFace(face, "native").
+export const faceMetric = (face) => {
+  const { width, uLen, height, vLen, uMin, vMin } = faceSize(face);
 
   const xStretch = width / uLen;
   const yStretch = height / vLen;
 
-  let outline = drawFaceOutline(face);
-  if (xStretch !== 1) {
-    outline = outline.stretch(xStretch, [0, 1]);
-  }
-  if (yStretch !== 1) {
-    outline = outline.stretch(yStretch, [1, 0]);
-  }
-  outline = outline.offset(-margin);
-  if (yStretch !== 1) {
-    outline = outline.stretch(1 / yStretch, [1, 0]);
-  }
-  if (xStretch !== 1) {
-    outline = outline.stretch(1 / xStretch, [0, 1]);
-  }
-  return outline;
+  const toMetric = (drawing) => {
+    if (xStretch !== 1) {
+      drawing = drawing.stretch(xStretch, [0, 1]);
+    }
+    if (yStretch !== 1) {
+      drawing = drawing.stretch(yStretch, [1, 0]);
+    }
+    return drawing;
+  };
+
+  const toNative = (drawing) => {
+    if (yStretch !== 1) {
+      drawing = drawing.stretch(1 / yStretch, [1, 0]);
+    }
+    if (xStretch !== 1) {
+      drawing = drawing.stretch(1 / xStretch, [0, 1]);
+    }
+    return drawing;
+  };
+
+  return {
+    toMetric,
+    toNative,
+    width,
+    height,
+    uLen,
+    vLen,
+    uMin,
+    vMin,
+    xStretch,
+    yStretch,
+  };
+};
+
+export const drawFaceMargin = (face, margin) => {
+  const { toMetric, toNative } = faceMetric(face);
+  return toNative(toMetric(drawFaceOutline(face)).offset(-margin));
 };
 
 export const addPatternToShape = (
