@@ -1,4 +1,4 @@
-import { GCWithScope, getOC, drawFaceOutline } from "replicad";
+import { GCWithScope, getOC, drawFaceOutline, drawCircle } from "replicad";
 
 export const range = (size) => [...Array(size).keys()];
 
@@ -99,7 +99,42 @@ export const faceMetric = (face) => {
 
 export const drawFaceMargin = (face, margin) => {
   const { toMetric, toNative } = faceMetric(face);
-  return toNative(toMetric(drawFaceOutline(face)).offset(-margin));
+  const outline = toMetric(drawFaceOutline(face));
+  // An inward offset of a fillet-trimmed outline can fail in OCCT — either
+  // throwing ("Bug in the offset algorithm") or silently annihilating the
+  // drawing (no innerShape, which later throws on sketchOnFace). Degrade to a
+  // smaller margin (then none) instead of failing the whole decoration.
+  for (const m of [margin, margin / 2, 0]) {
+    try {
+      const inset = m > 0 ? outline.offset(-m) : outline;
+      if (inset.innerShape) {
+        if (m !== margin) {
+          console.warn(
+            `[replicad-decorate] face outline inset by ${margin} collapsed; falling back to ${m}`
+          );
+        }
+        return toNative(inset);
+      }
+    } catch (e) {
+      // try the next smaller margin
+    }
+  }
+  return toNative(outline);
+};
+
+// Largest centered circle that fits the face's metric bounding box, inset by
+// margin — a clip region that always sketches, for faces whose own outline
+// cannot be offset or sketched by OCCT.
+export const drawFaceCenterCircle = (face, margin) => {
+  const { toNative, width, height, uLen, vLen, uMin, vMin, xStretch, yStretch } =
+    faceMetric(face);
+  const radius = Math.max(
+    Math.min(width, height) / 2 - margin,
+    Math.min(width, height) / 4
+  );
+  const cx = (uMin + uLen / 2) * xStretch;
+  const cy = (vMin + vLen / 2) * yStretch;
+  return toNative(drawCircle(radius).translate(cx, cy));
 };
 
 export const addPatternToShape = (
@@ -155,9 +190,26 @@ export const addPatternToShape = (
 
   let patternSolid = pattern.sketchOnFace(face, "native").extrude(depth);
   if (!disableCut) {
-    patternSolid = patternSolid.intersect(
-      outline.sketchOnFace(face, "native").extrude(depth)
-    );
+    // The boundary clip guards against patterns spilling past the face edge
+    // (and into adjacent fillet surfaces, which can crash or corrupt the
+    // final boolean). Some fillet-trimmed outlines cannot be sketched/offset
+    // by OCCT at all — retry with a centered circle clip. If that fails too,
+    // fail the decoration: applying the pattern unclipped can silently
+    // produce a mangled solid, which is worse than a skipped face.
+    try {
+      patternSolid = patternSolid.intersect(
+        outline.sketchOnFace(face, "native").extrude(depth)
+      );
+    } catch (outlineError) {
+      patternSolid = patternSolid.intersect(
+        drawFaceCenterCircle(face, margin)
+          .sketchOnFace(face, "native")
+          .extrude(depth)
+      );
+      console.warn(
+        "[replicad-decorate] outline clip failed; clipped to centered circle instead"
+      );
+    }
   }
 
   const newShape =
