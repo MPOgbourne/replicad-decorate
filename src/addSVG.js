@@ -12,10 +12,13 @@ export async function addSVG(
     angle = 0,
     xShift = 0,
     yShift = 0,
+    margin = 1,
     mirrorY = true,
     disableCut = true,
+    carveBackground = false,
     alwaysClosePaths = false,
     fitViewBox = false,
+    panel = null,
   }
 ) {
   if (typeof svgString !== "string" || !svgString.trim()) {
@@ -46,5 +49,15 @@ export async function addSVG(
   const { width: faceWidth, height: faceHeight } = faceSize(face);
   image = image.translate(faceWidth / 2, faceHeight / 2);
 
-  return addPatternToShape(shape, face, image, depth, 1, mirrorY, disableCut);
+  return addPatternToShape(
+    shape,
+    face,
+    image,
+    depth,
+    margin,
+    mirrorY,
+    disableCut,
+    carveBackground,
+    panel
+  );
 }

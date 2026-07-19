@@ -36,6 +36,8 @@ export async function addText(
     autoOrient = true,
     disableCut = false,
     carveBackground = false,
+    panel = null,
+    ring = null,
   }
 ) {
   if (typeof text !== "string" || !text) {
@@ -100,6 +102,8 @@ export async function addText(
     margin,
     mirrorY,
     disableCut,
-    carveBackground
+    carveBackground,
+    panel,
+    ring
   );
 }

@@ -1,4 +1,11 @@
-import { GCWithScope, getOC, drawFaceOutline, drawCircle } from "replicad";
+import {
+  GCWithScope,
+  getOC,
+  drawFaceOutline,
+  drawCircle,
+  loft,
+  Plane,
+} from "replicad";
 
 export const range = (size) => [...Array(size).keys()];
 
@@ -97,6 +104,51 @@ export const faceMetric = (face) => {
   };
 };
 
+export const EPS = 0.05;
+export const MIN_RING_WIDTH = 0.2;
+
+export const isUsableDrawing = (drawing) => {
+  try {
+    const { width, height } = drawing.boundingBox;
+    return width > EPS && height > EPS;
+  } catch (e) {
+    return false;
+  }
+};
+
+// Contour of the face outline (or an inscribed circle), inset by margin, in
+// metric UV space. Shared by addBorder (ring contours) and addPatternToShape
+// (border-aware decoration panels).
+export const buildFaceContour = (
+  face,
+  metric,
+  { shape = "outline", margin = 0, cornerRadius = 1 }
+) => {
+  const { toMetric, width, height, uMin, vMin, uLen, vLen, xStretch, yStretch } =
+    metric;
+
+  if (shape === "circle") {
+    const radius = Math.min(width, height) / 2 - margin;
+    if (radius <= MIN_RING_WIDTH) {
+      throw new Error(`Face too small for a circle contour (margin ${margin})`);
+    }
+    const centerX = (uMin + uLen / 2) * xStretch;
+    const centerY = (vMin + vLen / 2) * yStretch;
+    return drawCircle(radius).translate([centerX, centerY]);
+  }
+
+  // offset(0) yields an unusable drawing in OCCT — skip it for zero margins
+  // so margin 0 means "the face outline itself", not a fallback
+  let outline = toMetric(drawFaceOutline(face));
+  if (margin > 0) {
+    outline = outline.offset(-margin);
+  }
+  if (shape === "rounded" && cornerRadius > 0) {
+    outline = outline.fillet(cornerRadius);
+  }
+  return outline;
+};
+
 export const drawFaceMargin = (face, margin) => {
   const { toMetric, toNative } = faceMetric(face);
   const outline = toMetric(drawFaceOutline(face));
@@ -137,6 +189,95 @@ export const drawFaceCenterCircle = (face, margin) => {
   return toNative(drawCircle(radius).translate(cx, cy));
 };
 
+// The carve solid for carveBackground, shaped by the panel's wall profile:
+// - vertical (default): straight extruded walls
+// - sloped: drafted walls via a ruled loft, panel narrows by |d|*tan(angle)
+// - chamfered / rounded: floor edge loops chamfered or filleted
+// Profile failures degrade to the plain vertical carve.
+const carvePanelTool = (face, outline, d, panel) => {
+  const h = Math.abs(d);
+  const vertical = () => outline.sketchOnFace(face, "native").extrude(d);
+  const profile = panel?.profile ?? "vertical";
+
+  if (profile === "sloped") {
+    try {
+      const angle = panel.angle ?? 15;
+      const dx = h * Math.tan((angle * Math.PI) / 180);
+      const metric = faceMetric(face);
+      const floor = metric.toNative(metric.toMetric(outline).offset(-dx));
+      if (!isUsableDrawing(floor)) return vertical();
+      const normal = face.normalAt().normalized();
+      const shift = normal.multiply(d);
+      const wireTop = outline.sketchOnFace(face, "native").wire;
+      const wireFloor = floor.sketchOnFace(face, "native").wire.translate(shift);
+      return loft([wireTop, wireFloor], { ruled: true });
+    } catch (e) {
+      return vertical();
+    }
+  }
+
+  if (profile === "chamfered" || profile === "rounded") {
+    try {
+      const size = Math.min(h / 2, h - EPS);
+      if (size <= 0) return vertical();
+      const normal = face.normalAt().normalized();
+      const farPoint = face.center.add(normal.multiply(d));
+      const farPlane = new Plane(
+        [farPoint.x, farPoint.y, farPoint.z],
+        null,
+        normal
+      );
+      const filter = (e) => e.inPlane(farPlane);
+      const tool = vertical();
+      return profile === "rounded"
+        ? tool.fillet(size, filter)
+        : tool.chamfer(size, filter);
+    } catch (e) {
+      return vertical();
+    }
+  }
+
+  return vertical();
+};
+
+// Decoration boundary: the face outline inset by margin, or — when a panel
+// spec ({shape, margin, cornerRadius}) is given, e.g. to keep a decoration
+// inside a border ring — the panel contour. Falls back to the plain outline
+// when the panel contour cannot be built or collapses.
+const drawPatternBoundary = (face, margin, panel) => {
+  if (panel) {
+    try {
+      const metric = faceMetric(face);
+      const contour = buildFaceContour(face, metric, panel);
+      if (isUsableDrawing(contour)) {
+        return metric.toNative(contour);
+      }
+    } catch (e) {
+      // fall through to the default outline
+    }
+    console.warn(
+      "[replicad-decorate] panel contour unusable; falling back to the face outline"
+    );
+  }
+  return drawFaceMargin(face, margin);
+};
+
+// Ring solid (annulus) built from a border spec ({shape, margin, width,
+// cornerRadius}), extruded by depth — used to keep a border ring standing at
+// surface level while carveBackground sinks the face around it.
+const ringTowerSolid = (face, ring, depth) => {
+  const metric = faceMetric(face);
+  const outer = buildFaceContour(face, metric, ring);
+  const inner = outer.offset(-ring.width);
+  if (!isUsableDrawing(outer) || !isUsableDrawing(inner)) {
+    throw new Error("ring does not fit the face");
+  }
+  return metric
+    .toNative(outer.cut(inner))
+    .sketchOnFace(face, "native")
+    .extrude(depth);
+};
+
 export const addPatternToShape = (
   shape,
   face,
@@ -145,14 +286,16 @@ export const addPatternToShape = (
   margin,
   mirrorY = false,
   disableCut = false,
-  carveBackground = false
+  carveBackground = false,
+  panel = null,
+  ring = null
 ) => {
   const { vLen, uLen, uMin, vMin, width, height } = faceSize(face);
 
   const yScaleFactor = vLen / height;
   const xScaleFactor = uLen / width;
 
-  const outline = drawFaceMargin(face, margin);
+  const outline = drawPatternBoundary(face, margin, panel);
 
   if (xScaleFactor !== 1) {
     pattern = pattern.stretch(xScaleFactor, [0, 1]);
@@ -180,12 +323,26 @@ export const addPatternToShape = (
     // fused back as towers reaching the original surface level — "raised"
     // without protruding past the face.
     const d = -Math.abs(depth);
-    const panel = outline.sketchOnFace(face, "native").extrude(d);
-    const towers = outline
-      .sketchOnFace(face, "native")
-      .extrude(d)
-      .intersect(pattern.sketchOnFace(face, "native").extrude(d));
-    return shape.clone().cut(panel).fuse(towers);
+    // With a ring the carve spans the standard face panel (the ring and its
+    // moat live inside it) while the pattern itself stays clipped to
+    // `outline` (typically the region inside the ring, via `panel`).
+    const carveOutline = ring ? drawFaceMargin(face, margin) : outline;
+    const tool = carvePanelTool(face, carveOutline, d, panel);
+    let towers = tool.intersect(pattern.sketchOnFace(face, "native").extrude(d));
+    if (ring) {
+      towers = towers.intersect(outline.sketchOnFace(face, "native").extrude(d));
+      // The border ring is carved around too: it stands at surface level
+      // exactly like the pattern towers
+      try {
+        towers = towers.fuse(ringTowerSolid(face, ring, d).intersect(tool));
+      } catch (e) {
+        console.warn(
+          "[replicad-decorate] ring tower failed; carving without the ring",
+          e
+        );
+      }
+    }
+    return shape.clone().cut(tool).fuse(towers);
   }
 
   let patternSolid = pattern.sketchOnFace(face, "native").extrude(depth);
